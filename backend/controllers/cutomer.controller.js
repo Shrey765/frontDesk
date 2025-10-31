@@ -3,10 +3,10 @@ import admin from "firebase-admin";
 
 const createCustomerRequests = async (req, res) => {
     try {
-        const {customerId, question} = req.body;
+        const {customerId, question, hashedQuestion} = req.body;
         const {FieldValue} = admin.firestore;
 
-        if (typeof customerId !== "string" || typeof question !== "string" ||
+        if (!customerId || !question ||typeof customerId !== "string" || typeof question !== "string" ||
             customerId.trim() === "" || question.trim() === "") {
 
             return res
@@ -20,6 +20,7 @@ const createCustomerRequests = async (req, res) => {
             customerId,
             question,
             status: "pending",
+            hashedQuestion,
             answer: null,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp()
@@ -34,6 +35,7 @@ const createCustomerRequests = async (req, res) => {
         await docRef.set(customerRequest);
 
         console.log(`Customer request stored with ID: ${docRef.id}`);
+        console.log(customerRequest);
 
         return res
         .status(201)
@@ -91,7 +93,7 @@ const resolveCustomerRequest = async (req, res) => {
         const {id} = req.params;
         const {answer} = req.body;
         const {FieldValue} = admin.firestore;
-        if(typeof answer !== "string" || answer.trim() === ""){
+        if(!answer || typeof answer !== "string" || answer.trim() === ""){
             return res
             .status(400)
             .json({
@@ -105,7 +107,7 @@ const resolveCustomerRequest = async (req, res) => {
             return res.status(404).json({ message: "Request not found." });
         }
 
-        const { customerId, question } = requestDoc.data();
+        const { customerId, hashedQuestion, question } = requestDoc.data();
 
         await requestRef.update({
             status: "resolved",
@@ -113,21 +115,25 @@ const resolveCustomerRequest = async (req, res) => {
             updatedAt: FieldValue.serverTimestamp()
         })
 
-        console.log(`SIMULATED TEXT to ${customerId}: Here's that answer: '${answer}'`);
-        console.log(` KNOWLEDGE BASE: Learning new fact: ${question}`);
 
-        const kbRef = db.collection("knowledgeBase").doc();
-        const kbEntery = {
+        const kbRef = db.collection("knowledgeBase").doc(hashedQuestion);
+        const kbEntry = {
+            hashedQuestion: hashedQuestion,
             question: question,
             answer: answer,
             createdAt: FieldValue.serverTimestamp()
         }
-        await kbRef.set(kbEntery);
+        await kbRef.set(kbEntry);
+
+        console.log(`SIMULATED TEXT to ${customerId}: Here's that answer: '${answer}'`);
+        console.log(`KB upserted for question: "${question}" (id: ${hashedQuestion})`);
+
         return res
             .status(200)
             .json({
                 message: "Customer request resolved successfully",
-                entry: kbEntery
+                entry: kbEntry,
+                kbId: hashedQuestion,
             })
     } catch (error) {
         console.log(error);
@@ -143,37 +149,24 @@ const resolveCustomerRequest = async (req, res) => {
 //route for LiveKit AI to fetch Q&A pairs from knowledge base
 const getKnowledgeBase = async (req, res) => {
     try {
-        const {question} = req.query;
-        if(typeof question !== "string" || question.trim() === ""){
-            return res
-            .status(400)
-            .json({
-                message: "Question query parameter is required"
-            })
-        }
-
-        const kbRef = db.collection("knowledgeBase");
+        const {hashedQuestion} = req.query;
+        const kbRef = db.collection("knowledgeBase").doc(hashedQuestion);
         const kbSnapshot = await kbRef.get();
-        const knowledgeBase = [];
 
         if(!kbSnapshot.exists){
             return res
             .status(200)
             .json({
-                message: "Knowledge base is empty",
-                knowledgeBase: []
-            })
+                message: "Answer not found in knowledge base.",
+                answer: null
+            });
         }
-
-        kbSnapshot.forEach((doc) => {
-            knowledgeBase.push({ id: doc.id, ...doc.data() });
-        });
 
         return res
         .status(200)
         .json({
             message: "Knowledge base retrieved successfully",
-            knowledgeBase: knowledgeBase
+            answer: kbSnapshot.data()
         });
 
     } catch (error) {
