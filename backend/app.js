@@ -1,14 +1,16 @@
 import express from 'express'
+import cors from 'cors'
 
 const app = express();
+app.use(cors());
+app.use(express.json({limit: '50mb'}))
 
 app.get('/', (req, res) => {
   res.send('<h1>Your Express server is alive!</h1>');
 });
 
-// Now, all your other endpoints
-app.get('/api/hello', (req, res) => {
-  res.json({ message: '👋 Hello from your Express API!' });
-});
+//Api routes
+import router from './routes/api.js';
+app.use('/api/v1', router);
 
 export default app;
