@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^12.5.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
@@ -27,5 +28,18 @@
     "postcss-cli": "^11.0.1",
     "tailwindcss": "^3.4.17",
     "vite": "^7.1.7"
-  }
+  },
+  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shrey765/frontDesk.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Shrey765/frontDesk/issues"
+  },
+  "homepage": "https://github.com/Shrey765/frontDesk#readme"
 }
