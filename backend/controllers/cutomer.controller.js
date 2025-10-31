@@ -26,6 +26,11 @@ const createCustomerRequests = async (req, res) => {
         }
 
         const docRef = db.collection("helpRequests").doc();
+        if(!docRef){
+            return res
+            .status(500)
+            .json({ message: "Could not create a new document reference" });
+        }
         await docRef.set(customerRequest);
 
         console.log(`Customer request stored with ID: ${docRef.id}`);
@@ -34,7 +39,8 @@ const createCustomerRequests = async (req, res) => {
         .status(201)
         .json({
             message: "Request received successfully",
-            requestId: docRef.id
+            requestId: docRef.id,
+            request: customerRequest
         })
         
     } catch (error) {
@@ -167,7 +173,7 @@ const getKnowledgeBase = async (req, res) => {
             message: "Knowledge base retrieved successfully",
             knowledgeBase: knowledgeBase
         });
-        
+
     } catch (error) {
         console.log(error);
         return res

@@ -1,10 +1,18 @@
-import { initializeApp, cert } from "firebase-admin";
-import {getFirestore} from "firebase-admin/firestore";
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+// config/firebase.js
+import admin from "firebase-admin";
+import fs from "fs";
 
-//firebase admin initialization
-initializeApp({
-    credential: cert(serviceAccount)
-})
+// Load your service account JSON without JSON import assertions
+const serviceAccount = JSON.parse(
+  fs.readFileSync(new URL("../service-account-key.json", import.meta.url), "utf8")
+);
 
-export const db = getFirestore();
+// Initialize once (important for dev/hot reload)
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
+
+export const db = admin.firestore();
+export default admin;
