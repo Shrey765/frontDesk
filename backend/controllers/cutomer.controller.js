@@ -89,7 +89,7 @@ const resolveCustomerRequest = async (req, res) => {
     try {
 
         const {id} = req.params;
-        const {question, answer} = req.body;
+        const {answer} = req.body;
         const {FieldValue} = admin.firestore;
         if(typeof answer !== "string" || answer.trim() === ""){
             return res
@@ -105,7 +105,9 @@ const resolveCustomerRequest = async (req, res) => {
             return res.status(404).json({ message: "Request not found." });
         }
 
-        await requestDoc.update({
+        const { customerId, question } = requestDoc.data();
+
+        await requestRef.update({
             status: "resolved",
             answer: answer,
             updatedAt: FieldValue.serverTimestamp()
