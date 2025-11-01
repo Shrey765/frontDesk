@@ -1,43 +1,31 @@
-import crypto from 'crypto';
+import { hashQuestion, normalizeText } from "../utils/text.utils.js";
 
-const normalize = async (req, res, next) => {
-    try {
-        const question = req.query.hashedQuestion || req.body.question;
-
-        if(!question || typeof question !== 'string' || question.trim() === ''){
-            return res
+export const normalize = (req, res, next) => {
+  try {
+    const question = req.body?.question ?? req.query?.question;
+    if (!question || typeof question !== "string" || question.trim() === "") {
+      return res
             .status(400)
-            .json({
-                message: "Question query parameter is required"
+            .json({ 
+                message: "question is required" 
             });
-        }
-
-        const normalizedQuestion = (question) => {
-            return question
-                    .toLowerCase()
-                    .replace(/[^\w\s]/g, '') // remove punctuation
-                    .replace(/\s+/g, ' ')     // condense spaces
-                    .trim();
-        }
-
-        const hashedQuestion = (question) => {
-            const normalized = normalizedQuestion(question);
-            // Create a SHA-256 hash
-            return crypto.createHash('sha256').update(normalized).digest('hex');
-        };
-
-        let hashKey = hashedQuestion(question);
-        req.hashedQuestion = hashKey;
-
-        req.body = {...req.body, hashedQuestion: hashKey};
-        next();
-
-    } catch (error) {
-        console.error("Normalization error:", error);
-        return res
-          .status(500)
-          .json({ message: "Error while normalizing question", error: error.message });
     }
-}
 
-export {normalize};
+    const hashedQuestion = hashQuestion(question);
+    req.hashedQuestion = hashedQuestion;
+    req.normalizedQuestion = normalizeText(question);
+
+    // Make downstream handlers consistent:
+    req.body = { ...req.body, hashedQuestion, question: req.normalizedQuestion };
+    req.query = { ...req.query, hashedQuestion, question: req.normalizedQuestion };
+
+    next();
+  } catch (err) {
+    console.error("Normalization error:", err);
+    return res
+    .status(500)
+    .json({ 
+        message: "Error while normalizing question", error: err.message 
+    });
+  }
+};
