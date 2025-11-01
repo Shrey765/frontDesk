@@ -1,8 +1,12 @@
 import { Router } from "express";
 import { createCustomerRequests, getAllCustomerRequests, resolveCustomerRequest, getKnowledgeBase } from "../controllers/cutomer.controller.js";
-import { normalize } from "../middleware/noramlize.middleware.js";
+import { normalize } from "../utils/text.utils.js";
+import {agentTurn} from "../controllers/agent.controller.js"
 
 const router = Router();
+
+//Agent route
+router.route('/agent/turn').post(agentTurn);
 
 //create customer request
 router.route('/customer-requests/escalate').post(normalize, createCustomerRequests);

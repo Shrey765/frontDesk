@@ -12,11 +12,13 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@google/genai": "^1.28.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "firebase": "^12.5.0",
     "firebase-admin": "^13.5.0",
+    "openai": "^6.7.0",
     "prettier": "^3.6.2"
   },
   "devDependencies": {
