@@ -1,4 +1,4 @@
-import { db } from "../config/firebase.js";
+import { db } from "../src/config/firebase.js";
 import admin from "firebase-admin";
 
 const createCustomerRequests = async (req, res) => {

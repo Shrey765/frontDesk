@@ -1,5 +1,4 @@
-import { messaging } from 'firebase-admin';
-import admin, {db} from '../config/firebase.js'
+import admin, {db} from '../src/config/firebase.js'
 import { llmNormalize, llmPhraseAnswer } from '../services/gemini.service.js'
 import {normalizeText, hashQuestion} from '../utils/text.utils.js'
 
@@ -7,7 +6,7 @@ import {normalizeText, hashQuestion} from '../utils/text.utils.js'
 const agentTurn = async (req, res) => {
     try {
         
-        const {transcript, customerId} = req.body;
+        const {transcript, customerId} = req.body; //req body from LiveKit webhook
         if(!transcript || typeof transcript !== 'string' || transcript.trim() === ""){
             return res
                     .status(400)
@@ -16,7 +15,7 @@ const agentTurn = async (req, res) => {
 
         const question = await llmNormalize(transcript);
         const normalizedQuestion = normalizeText(question);
-        const hashedQuestion = hashQuestion(question);
+        const hashedQuestion = hashQuestion(normalizedQuestion);
 
 
         const kbRef = db.collection('knowledgeBase').doc(hashedQuestion);

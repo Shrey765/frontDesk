@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
 });
 
 //Api routes
-import router from './routes/api.js';
+import router from './src/routes/api.js';
 app.use('/api/v1', router);
 
 export default app;
