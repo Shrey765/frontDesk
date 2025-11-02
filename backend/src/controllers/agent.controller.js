@@ -1,4 +1,4 @@
-import admin, {db} from '../src/config/firebase.js'
+import admin, {db} from '../config/firebase.js'
 import { llmNormalize, llmPhraseAnswer } from '../services/gemini.service.js'
 import {normalizeText, hashQuestion} from '../utils/text.utils.js'
 
@@ -42,8 +42,9 @@ const agentTurn = async (req, res) => {
         const pendingRequest = await pendingRef.where('hashedQuestion', '==', hashedQuestion)
                                         .where('status', '==', 'pending').get();
 
-        if(!pendingRequest.empty()){
-            requestId = pendingRef.docs[0].id;
+        let requestId = null;  
+        if(pendingRequest.length > 0){
+            requestId = pendingRequest.docs[0].id;
         }else{
             const {FieldValue} = admin.firestore;
             const newRequest = {

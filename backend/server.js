@@ -2,6 +2,7 @@ import "dotenv/config";
 import app from './app.js'
 import { GoogleGenAI } from "@google/genai";
 
+
 const port = process.env.PORT || 8000;
 
 
@@ -19,8 +20,8 @@ async function main() {
   });
   console.log(response.text);
 }
-
 main();
+
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);

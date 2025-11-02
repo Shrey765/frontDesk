@@ -1,4 +1,4 @@
-import { db } from "../src/config/firebase.js";
+import { db } from "../config/firebase.js";
 import admin from "firebase-admin";
 
 const createCustomerRequests = async (req, res) => {
@@ -149,7 +149,7 @@ const resolveCustomerRequest = async (req, res) => {
 //route for LiveKit AI to fetch Q&A pairs from knowledge base
 const getKnowledgeBase = async (req, res) => {
     try {
-        const hashedQuestion = req.hashedQuestion; ;
+        const hashedQuestion = req.query.hashedQuestion; 
         const kbRef = db.collection("knowledgeBase").doc(hashedQuestion);
         const kbSnapshot = await kbRef.get();
 

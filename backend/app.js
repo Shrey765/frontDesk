@@ -11,6 +11,8 @@ app.get('/', (req, res) => {
 
 //Api routes
 import router from './src/routes/api.js';
+import livekitRouter from './src/routes/livekit.js';
+app.use('/api/v1/livekit', livekitRouter);
 app.use('/api/v1', router);
 
 export default app;
