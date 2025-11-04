@@ -17,7 +17,7 @@ function pickSmallTalk() {
 
 const agentTurn = async (req, res) => {
     try {
-        
+        console.log('🔹 agentTurn received:', req.body);
         const {transcript, customerId} = req.body; //req body from LiveKit webhook
         if(!transcript || typeof transcript !== 'string' || transcript.trim() === ""){
             return res

@@ -8,13 +8,17 @@ import {
   metrics,
   voice,
 } from '@livekit/agents';
-import * as livekit from '@livekit/agents-plugin-livekit';
 import * as silero from '@livekit/agents-plugin-silero';
 import { BackgroundVoiceCancellation } from '@livekit/noise-cancellation-node';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 
 dotenv.config({ path: '.env.local' });
+
+// 👇 add these: where is your Node/Express backend?
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+const BACKEND_HOOK = process.env.BACKEND_HOOK || '/livekit/webhook';
+// so final URL will be like: http://localhost:3000/livekit/webhook
 
 class Assistant extends voice.Agent {
   constructor() {
@@ -23,102 +27,103 @@ class Assistant extends voice.Agent {
       You eagerly assist users with their questions by providing information from your extensive knowledge.
       Your responses are concise, to the point, and without any complex formatting or punctuation including emojis, asterisks, or other symbols.
       You are curious, friendly, and have a sense of humor.`,
-
-      // To add tools, specify `tools` in the constructor.
-      // Here's an example that adds a simple weather tool.
-      // You also have to add `import { llm } from '@livekit/agents' and `import { z } from 'zod'` to the top of this file
-      // tools: {
-      //   getWeather: llm.tool({
-      //     description: `Use this tool to look up current weather information in the given location.
-      //
-      //     If the location is not supported by the weather service, the tool will indicate this. You must tell the user the location's weather is unavailable.`,
-      //     parameters: z.object({
-      //       location: z
-      //         .string()
-      //         .describe('The location to look up weather information for (e.g. city name)'),
-      //     }),
-      //     execute: async ({ location }) => {
-      //       console.log(`Looking up weather for ${location}`);
-      //
-      //       return 'sunny with a temperature of 70 degrees.';
-      //     },
-      //   }),
-      // },
     });
   }
 }
 
 export default defineAgent({
   prewarm: async (proc: JobProcess) => {
+    // you already downloaded the model, so this is OK now
     proc.userData.vad = await silero.VAD.load();
   },
   entry: async (ctx: JobContext) => {
-    // Set up a voice AI pipeline using OpenAI, Cartesia, AssemblyAI, and the LiveKit turn detector
     const session = new voice.AgentSession({
-      // Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-      // See all available models at https://docs.livekit.io/agents/models/stt/
       stt: new inference.STT({
         model: 'assemblyai/universal-streaming',
         language: 'en',
       }),
-
-      // A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-      // See all providers at https://docs.livekit.io/agents/models/llm/
-      llm: new inference.LLM({
-        model: 'openai/gpt-4.1-mini',
-      }),
-
-      // Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-      // See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
       tts: new inference.TTS({
         model: 'cartesia/sonic-3',
         voice: '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
       }),
-
-      // VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-      // See more at https://docs.livekit.io/agents/build/turns
-      //turnDetection: new livekit.turnDetector.MultilingualModel(),
+      // you’re using VAD from silero (prewarmed above)
       vad: ctx.proc.userData.vad! as silero.VAD,
     });
 
-    // To use a realtime model instead of a voice pipeline, use the following session setup instead.
-    // (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
-    // 1. Install '@livekit/agents-plugin-openai'
-    // 2. Set OPENAI_API_KEY in .env.local
-    // 3. Add import `import * as openai from '@livekit/agents-plugin-openai'` to the top of this file
-    // 4. Use the following session setup instead of the version above
-    // const session = new voice.AgentSession({
-    //   llm: new openai.realtime.RealtimeModel({ voice: 'marin' }),
-    // });
-
-    // Metrics collection, to measure pipeline performance
-    // For more information, see https://docs.livekit.io/agents/build/metrics/
+    // ✅ 1) COLLECT METRICS (your original code)
     const usageCollector = new metrics.UsageCollector();
     session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) => {
       metrics.logMetrics(ev.metrics);
       usageCollector.collect(ev.metrics);
     });
-
     const logUsage = async () => {
       const summary = usageCollector.getSummary();
       console.log(`Usage: ${JSON.stringify(summary)}`);
     };
-
     ctx.addShutdownCallback(logUsage);
 
-    // Start the session, which initializes the voice pipeline and warms up the models
+    // ✅ 2) SEND STT RESULTS TO YOUR BACKEND
+    // this event fires when STT has a final transcript for a turn
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, async (ev) => {
+    console.log('[agent] UserInputTranscribed event:', ev.transcript);
+
+    const transcript = ev.transcript?.trim();
+    if (!transcript) return;
+
+    const customerId =
+      ctx.participant?.identity || ctx.room?.name || 'livekit-user';
+
+    const url = `${BACKEND_URL}${BACKEND_HOOK}`;
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, customerId }),
+      });
+      console.log('[agent] sent transcript to backend:', transcript, 'status:', resp.status);
+    } catch (err) {
+      console.error('[agent] failed to send transcript to backend', err);
+    }
+  });
+
+
+    // handle typed messages from the sandbox chat box
+  session.on(voice.AgentSessionEventTypes., async (ev) => {
+    console.log('[agent] TextInput event:', ev.text);
+
+    const transcript = ev.text?.trim();
+    if (!transcript) return;
+
+    const customerId =
+      ctx.participant?.identity ||
+      ctx.room?.name ||
+      'livekit-user';
+
+    const url = `${BACKEND_URL}${BACKEND_HOOK}`;
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, customerId }),
+      });
+      console.log('[agent] sent typed text to backend:', transcript, 'status:', resp.status);
+    } catch (err) {
+      console.error('[agent] failed to send typed text to backend', err);
+    }
+  });
+
+
+
+
+    // ✅ 3) START YOUR EXISTING VOICE FLOW
     await session.start({
       agent: new Assistant(),
       room: ctx.room,
       inputOptions: {
-        // LiveKit Cloud enhanced noise cancellation
-        // - If self-hosting, omit this parameter
-        // - For telephony applications, use `BackgroundVoiceCancellationTelephony` for best results
         noiseCancellation: BackgroundVoiceCancellation(),
       },
     });
 
-    // Join the room and connect to the user
     await ctx.connect();
   },
 });
