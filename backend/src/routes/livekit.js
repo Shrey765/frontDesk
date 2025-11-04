@@ -22,4 +22,31 @@ livekitRouter.get('/getToken', async (req, res) => {
   return res.json({url: process.env.LIVEKIT_URL, token, room, identity});
 });
 
+livekitRouter.post('/webhook', async (req, res) => {
+  // LiveKit / your frontend might send different shapes, so normalize:
+  const body = req.body || {};
+
+  const transcript =
+    body.transcript ||
+    body.text ||
+    (body.data && body.data.transcript) ||
+    '';
+
+  const customerId =
+    body.customerId ||
+    body.participant ||
+    (body.data && body.data.participant) ||
+    'livekit-user';
+
+  if (!transcript) {
+    return res.status(400).json({ message: 'transcript is required', raw: body });
+  }
+
+  // reuse your existing agent logic
+  return agentTurn(
+    { body: { transcript, customerId } },
+    res
+  );
+});
+
 export default livekitRouter;
