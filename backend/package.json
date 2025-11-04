@@ -12,7 +12,12 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@cartesia/cartesia-js": "^2.2.7",
     "@google/genai": "^1.28.0",
+    "@livekit/agents": "^1.0.15",
+    "@livekit/agents-plugin-cartesia": "^1.0.15",
+    "@livekit/agents-plugin-livekit": "^1.0.15",
+    "@livekit/rtc-node": "^0.13.20",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

@@ -19,7 +19,7 @@ livekitRouter.get('/getToken', async (req, res) => {
   at.addGrant({ roomJoin: true, room });
 
   const token = await at.toJwt();
-  res.json({url: process.env.LIVEKIT_URL, token, room, identity});
+  return res.json({url: process.env.LIVEKIT_URL, token, room, identity});
 });
 
 export default livekitRouter;
