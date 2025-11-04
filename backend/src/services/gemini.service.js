@@ -60,4 +60,86 @@ const llmPhraseAnswer = async (question, answer) => {
     return response.text;
 }
 
-export { llmNormalize, llmPhraseAnswer };
+// services/gemini.service.js (style matched to your project)
+const temp = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+async function classifyUtterance(utterance) {
+  // 0) basic guard + quick local greeting check
+  if (!utterance || typeof utterance !== 'string') {
+    return { type: 'unknown' };
+  }
+
+  const lower = utterance.toLowerCase().trim();
+  const obviousGreetings = [
+    'hi',
+    'hello',
+    'hey',
+    'good morning',
+    'good evening',
+    'how are you',
+    'what\'s up',
+    'yo'
+  ];
+  if (obviousGreetings.some((g) => lower.startsWith(g))) {
+    return { type: 'small_talk' };
+  }
+
+  const prompt = `
+You are a classifier for a voice helpdesk.
+Decide if the user's utterance is:
+- "small_talk" (greetings, thanks, pleasantries, chitchat)
+- "question" (they want info or service)
+
+Return ONLY JSON:
+{ "type": "small_talk" }
+or
+{ "type": "question" }
+
+User utterance: """${utterance}"""
+  `.trim();
+
+  try {
+    const resp = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+    });
+
+    // ✅ your client returns resp.text (property), not resp.text()
+    const text = (resp && resp.text ? resp.text : '').trim();
+    // console.log('classify raw:', text);
+
+    const parsed = JSON.parse(text);
+    if (parsed?.type === 'small_talk' || parsed?.type === 'question') {
+      return parsed;
+    }
+
+    // if LLM returned weird JSON
+    return { type: 'unknown' };
+  } catch (err) {
+    console.error('classifyUtterance LLM error:', err);
+
+    // ✅ fallback heuristic
+    const qWords = [
+      'what',
+      'when',
+      'where',
+      'how',
+      'why',
+      'do you',
+      'can you',
+      'opening hours',
+      'price',
+      'timing',
+      'timings',
+      'available',
+    ];
+    if (qWords.some((w) => lower.includes(w))) {
+      return { type: 'question' };
+    }
+    return { type: 'small_talk' };
+  }
+}
+
+
+
+export { llmNormalize, llmPhraseAnswer, classifyUtterance };

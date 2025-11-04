@@ -1,10 +1,17 @@
 import { db } from "../config/firebase.js";
 import admin from "firebase-admin";
+import { RoomServiceClient } from "livekit-server-sdk";
+
+const livekit = new RoomServiceClient(
+  process.env.LIVEKIT_SERVER_URL,     // <- https://....livekit.cloud
+  process.env.LIVEKIT_API_KEY,
+  process.env.LIVEKIT_API_SECRET
+);
 
 const createCustomerRequests = async (req, res) => {
     try {
         const {customerId, question, hashedQuestion} = req.body;
-        const {FieldValue} = admin.firestore;
+        const FieldValue = admin.firestore.FieldValue;
 
         if (!customerId || !question ||typeof customerId !== "string" || typeof question !== "string" ||
             customerId.trim() === "" || question.trim() === "") {
@@ -92,7 +99,7 @@ const resolveCustomerRequest = async (req, res) => {
 
         const {id} = req.params;
         const {answer} = req.body;
-        const {FieldValue} = admin.firestore;
+        const FieldValue = admin.firestore.FieldValue;
         if(!answer || typeof answer !== "string" || answer.trim() === ""){
             return res
             .status(400)
@@ -127,6 +134,21 @@ const resolveCustomerRequest = async (req, res) => {
 
         console.log(`SIMULATED TEXT to ${customerId}: Here's that answer: '${answer}'`);
         console.log(`KB upserted for question: "${question}" (id: ${hashedQuestion})`);
+
+        const payload = {
+            type: "kb_resolved",
+            question,
+            answer,
+        };      
+
+        await livekit.sendData(
+            room,
+            Buffer.from(JSON.stringify(payload)),
+            {
+                // you can target a participant if you want
+                destinationIdentities: [participantIdentity],
+            }
+        );
 
         return res
             .status(200)

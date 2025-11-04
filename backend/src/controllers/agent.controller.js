@@ -1,6 +1,18 @@
 import admin, {db} from '../config/firebase.js'
-import { llmNormalize, llmPhraseAnswer } from '../services/gemini.service.js'
+import { llmNormalize, llmPhraseAnswer, classifyUtterance } from '../services/gemini.service.js'
 import {normalizeText, hashQuestion} from '../utils/text.utils.js'
+
+
+const SMALL_TALK_REPLIES = [
+  "Hi there! How can I help you today?",
+  "Hello! 👋 What would you like to know?",
+  "I'm doing great, thanks for asking. How can I assist you?",
+  "Hey! Tell me what you're looking for and I'll check."
+];
+
+function pickSmallTalk() {
+  return SMALL_TALK_REPLIES[Math.floor(Math.random() * SMALL_TALK_REPLIES.length)];
+}
 
 
 const agentTurn = async (req, res) => {
@@ -11,6 +23,19 @@ const agentTurn = async (req, res) => {
             return res
                     .status(400)
                     .json({message: 'transcript is required'});
+        }
+
+        const classification = await classifyUtterance(transcript);
+        console.log("utterance classification:", classification);
+
+        // If it's small talk, answer right away — DO NOT hit Firestore
+        if (classification?.type === "small_talk") {
+            const reply = pickSmallTalk();
+            console.log(`small talk reply for ${customerId}: "${reply}"`);
+            return res.json({
+                route: 'small_talk',
+                answer: reply,
+        });
         }
 
         const question = await llmNormalize(transcript);
@@ -43,10 +68,10 @@ const agentTurn = async (req, res) => {
                                         .where('status', '==', 'pending').get();
 
         let requestId = null;  
-        if(pendingRequest.length > 0){
+        if(!pendingRequest.empty){
             requestId = pendingRequest.docs[0].id;
         }else{
-            const {FieldValue} = admin.firestore;
+            const FieldValue = admin.firestore.FieldValue;
             const newRequest = {
                 customerId,
                 question,
