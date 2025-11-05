@@ -16,9 +16,6 @@ import { fileURLToPath } from 'node:url';
 
 dotenv.config({ path: '.env.local' });
 
-// -----------------------------------------------------------------------------
-// 1. backend endpoint (your Express app)
-// -----------------------------------------------------------------------------
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
 const BACKEND_HOOK = process.env.BACKEND_HOOK || '/api/v1/livekit/webhook';
 
@@ -28,78 +25,63 @@ function makeBackendUrl() {
   return `${base}${hook}`;
 }
 
-// helper – Cartesia is okay with ascii
+// keep TTS text safe
 function sanitizeForTTS(text: string) {
   return text.replace(/[^\x00-\x7F]/g, '').trim();
 }
 
-// -----------------------------------------------------------------------------
-// 2. Salon receptionist persona
-// -----------------------------------------------------------------------------
+// keep answers short so VAD doesn’t kill the stream
+function shorten(text: string, max = 120) {
+  if (!text) return text;
+  if (text.length <= max) return text;
+  return text.slice(0, max).trim() + '.';
+}
+
 class Assistant extends voice.Agent {
   constructor() {
     super({
       instructions: `
-You are a salon receptionist for a barbershop/salon.
-Always greet briefly, then ask what service or timing they want.
-Keep replies short, warm, and without emojis.
-If you don't know the answer, say: "Let me check with my supervisor and get back to you."
+You are a salon receptionist. Greet the caller, ask what service they want (haircut, color, spa, waxing, manicure), and answer from the salon knowledge. Keep replies short and friendly. Do not use emojis.
+If you don't know, say: "Let me check with my supervisor and get back to you."
       `.trim(),
+      // extra safety: don't let user speech interrupt TTS
+      allowInterruptions: false,
     });
   }
 }
 
-// -----------------------------------------------------------------------------
-// 3. Define the agent
-// -----------------------------------------------------------------------------
 export default defineAgent({
   // preload VAD
   prewarm: async (proc: JobProcess) => {
     proc.userData.vad = await silero.VAD.load();
   },
 
-  // main entry
   entry: async (ctx: JobContext) => {
-    // -------------------------------------------------------------------------
-    // 3a. voice session: STT + TTS + VAD
-    // -------------------------------------------------------------------------
     const session = new voice.AgentSession({
-      // ears
       stt: new inference.STT({
         model: 'assemblyai/universal-streaming',
         language: 'en',
       }),
-
-      // mouth – use Cartesia because you have CARTESIA_API_KEY
-      // check that .env.local in *this* project has CARTESIA_API_KEY=...
+      // use Cartesia through LiveKit inference
       tts: new inference.TTS({
-        model: 'cartesia/sonic-3',     // good default
-        voice: '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc', // your earlier voice id
+        model: 'cartesia/sonic-3',
       }),
-
-      // turn detection
       vad: ctx.proc.userData.vad! as silero.VAD,
+      // tell session too: don't interrupt TTS
+      allowInterruptions: false,
     });
 
-    // -------------------------------------------------------------------------
-    // 3b. metrics
-    // -------------------------------------------------------------------------
+    // metrics
     const usageCollector = new metrics.UsageCollector();
     session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) => {
       usageCollector.collect(ev.metrics);
     });
     ctx.addShutdownCallback(async () => {
-      console.log('[agent] usage:', JSON.stringify(usageCollector.getSummary()));
+      console.log(`Usage: ${JSON.stringify(usageCollector.getSummary())}`);
     });
 
-    // -------------------------------------------------------------------------
-    // 3c. prevent spammy duplicates
-    // -------------------------------------------------------------------------
     let lastTranscript = '';
 
-    // -------------------------------------------------------------------------
-    // 3d. when user finishes a sentence
-    // -------------------------------------------------------------------------
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, async (ev) => {
       const transcript = ev.transcript?.trim();
       if (!transcript) return;
@@ -110,14 +92,14 @@ export default defineAgent({
         return;
       }
 
-      // wait for “.” or ~25 chars to treat as final
+      // wait until sentence looks complete
       const looksComplete = /[.?!]$/.test(transcript) || transcript.length > 25;
       if (!looksComplete) {
         console.log('[agent] wait for completion:', transcript);
         return;
       }
 
-      // ignore exact duplicate
+      // ignore duplicates
       if (transcript === lastTranscript) {
         console.log('[agent] ignore duplicate transcript:', transcript);
         return;
@@ -126,9 +108,6 @@ export default defineAgent({
 
       console.log('[agent] user said:', transcript);
 
-      // -----------------------------------------------------------------------
-      // call your Express backend
-      // -----------------------------------------------------------------------
       const customerId =
         ctx.participant?.identity || ctx.room?.name || 'livekit-user';
 
@@ -146,37 +125,22 @@ export default defineAgent({
 
         const reply = data?.answer || data?.message;
         if (reply) {
-          // 1) show to clients (UI)
-          try {
-            await ctx.room.localParticipant.publishData(
-              JSON.stringify({
-                type: 'agent_reply',
-                text: reply,
-              }),
-              { reliable: true },
-            );
-          } catch (pubErr) {
-            console.error('[agent] failed to publish data to room:', pubErr);
-          }
+          const clean = sanitizeForTTS(shorten(reply));
+          console.log('[agent] spoke reply:', clean);
 
-          // 2) speak it from the agent (Cartesia)
-          const clean = sanitizeForTTS(reply);
           try {
+            // this is the actual speech
             await session.say(clean);
-            console.log('[agent] spoke reply:', clean);
-          } catch (ttsErr) {
-            // if TTS model misbehaves, do NOT crash
-            console.error('[agent] TTS failed:', ttsErr);
+          } catch (err) {
+            console.error('[agent] TTS failed:', err);
           }
         }
       } catch (err) {
-        console.error('[agent] failed to hit backend:', err);
+        console.error('[agent] failed to send transcript:', err);
       }
     });
 
-    // -------------------------------------------------------------------------
-    // 3e. join room and start
-    // -------------------------------------------------------------------------
+    // start and join room
     await session.start({
       agent: new Assistant(),
       room: ctx.room,
@@ -190,9 +154,6 @@ export default defineAgent({
   },
 });
 
-// -----------------------------------------------------------------------------
-// 4. run worker
-// -----------------------------------------------------------------------------
 cli.runApp(
   new WorkerOptions({
     agent: fileURLToPath(import.meta.url),
