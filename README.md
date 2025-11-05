@@ -1,16 +1,81 @@
-# React + Vite
+# 🎙️ FrontDesk Voice Agent
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A **real-time conversational AI receptionist** built with **LiveKit Agents**, **AssemblyAI STT**, **Cartesia TTS**, and a **custom Node.js backend**.  
+This agent listens, understands, and speaks — designed for automating salon, clinic, or front-desk interactions.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Features
 
-## React Compiler
+- 🎧 **Real-time speech-to-text (STT)** using AssemblyAI streaming
+- 🗣️ **Text-to-speech (TTS)** using Cartesia Sonic-3
+- 🧠 **LLM-based replies** via your backend (Gemini / OpenAI / custom rules)
+- 🧪 **Silero VAD** to detect when the caller is speaking
+- 🔇 **Noise cancellation** with `BackgroundVoiceCancellation`
+- 🔗 **Webhook integration** with your backend: `/api/v1/livekit/webhook`
+- 📡 **LiveKit room data** so your frontend can display the agent’s replies
+- 📊 **Metrics** using LiveKit’s `UsageCollector`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🧱 Project Structure (high level)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```text
+src/
+ └── agent.ts              # LiveKit agent (the one you run with `npm run dev`)
+backend/                   # Your Express / Node backend (serves the webhook)
+.env.local                 # All your secrets + LiveKit URL
+package.json
+README.md
+```
+
+
+## ⚙️ Prerequisites
+
+**Before you start:**
+
+- **Node.js 18+**
+
+- **npm or yarn**
+
+- **A LiveKit Cloud project (you already have one: frontdesk-flwj05rb.livekit.cloud)**
+
+- **Your backend running locally on port 4000 (or change in .env.local)**
+
+## 🔐 Environment Setup
+# --- LiveKit Cloud ---
+LIVEKIT_URL=wss://frontdesk-flwj05rb.livekit.cloud
+LIVEKIT_API_KEY=YOUR_LIVEKIT_API_KEY
+LIVEKIT_API_SECRET=YOUR_LIVEKIT_API_SECRET
+
+# --- Backend (your Express app) ---
+BACKEND_URL=http://localhost:4000
+BACKEND_HOOK=/api/v1/livekit/webhook
+
+# --- LLM / optional ---
+USE_LLM=true
+GEMINI_API_KEY=YOUR_GEMINI_KEY
+GEMINI_MODEL=gemini-2.5-flash
+
+## 🏃‍♂️ Running the Project
+1. Start the Backend (API)
+
+Your agent is calling this endpoint:
+
+POST http://localhost:4000/api/v1/livekit/webhook
+
+So make sure your backend is up:
+- cd backend
+- npm install
+- npm run start
+
+2. Start the Agent (LiveKit worker)
+   - In another terminal, run:
+   - cd my-app (make sure to make the sandbox app in the liveKit dashBoard)
+   - npm install
+   - npm run dev
+
+4. run front end:
+   npm run dev
+
+
