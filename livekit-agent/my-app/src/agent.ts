@@ -18,6 +18,13 @@ dotenv.config({ path: '.env.local' });
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
 const BACKEND_HOOK = process.env.BACKEND_HOOK || '/api/v1/livekit/webhook';
+const LIVEKIT_WS_URL =
+  process.env.LIVEKIT_URL || 'wss://frontdesk-flwj05rb.livekit.cloud';
+
+function makeInferenceUrl() {
+  const base = LIVEKIT_WS_URL.replace(/\/+$/, '');
+  return `${base}/inference`;
+}
 
 function makeBackendUrl() {
   const base = BACKEND_URL.endsWith('/') ? BACKEND_URL.slice(0, -1) : BACKEND_URL;
@@ -25,12 +32,9 @@ function makeBackendUrl() {
   return `${base}${hook}`;
 }
 
-// keep TTS text safe
 function sanitizeForTTS(text: string) {
   return text.replace(/[^\x00-\x7F]/g, '').trim();
 }
-
-// keep answers short so VAD doesn’t kill the stream
 function shorten(text: string, max = 120) {
   if (!text) return text;
   if (text.length <= max) return text;
@@ -44,34 +48,43 @@ class Assistant extends voice.Agent {
 You are a salon receptionist. Greet the caller, ask what service they want (haircut, color, spa, waxing, manicure), and answer from the salon knowledge. Keep replies short and friendly. Do not use emojis.
 If you don't know, say: "Let me check with my supervisor and get back to you."
       `.trim(),
-      // extra safety: don't let user speech interrupt TTS
-      allowInterruptions: false,
+      allowInterruptions: true,
     });
   }
 }
 
 export default defineAgent({
-  // preload VAD
   prewarm: async (proc: JobProcess) => {
     proc.userData.vad = await silero.VAD.load();
   },
 
   entry: async (ctx: JobContext) => {
+    // try to build TTS, but don't die if it fails
+    const inferenceUrl = makeInferenceUrl();
+    let tts: inference.TTS | undefined;
+
+    try {
+      tts = new inference.TTS({
+        // this is the one you wanted
+        model: 'cartesia/sonic-3',
+        baseUrl: inferenceUrl,
+      });
+      console.log('[agent] TTS initialized with', inferenceUrl);
+    } catch (err) {
+      console.error('[agent] failed to init TTS, will run STT-only:', err);
+    }
+
     const session = new voice.AgentSession({
       stt: new inference.STT({
         model: 'assemblyai/universal-streaming',
         language: 'en',
       }),
-      // use Cartesia through LiveKit inference
-      tts: new inference.TTS({
-        model: 'cartesia/sonic-3',
-      }),
+      // only pass tts if we actually created it
+      ...(tts ? { tts } : {}),
       vad: ctx.proc.userData.vad! as silero.VAD,
-      // tell session too: don't interrupt TTS
       allowInterruptions: false,
     });
 
-    // metrics
     const usageCollector = new metrics.UsageCollector();
     session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) => {
       usageCollector.collect(ev.metrics);
@@ -86,20 +99,17 @@ export default defineAgent({
       const transcript = ev.transcript?.trim();
       if (!transcript) return;
 
-      // ignore very short partials
       if (transcript.length < 10) {
         console.log('[agent] ignore short transcript:', transcript);
         return;
       }
 
-      // wait until sentence looks complete
       const looksComplete = /[.?!]$/.test(transcript) || transcript.length > 25;
       if (!looksComplete) {
         console.log('[agent] wait for completion:', transcript);
         return;
       }
 
-      // ignore duplicates
       if (transcript === lastTranscript) {
         console.log('[agent] ignore duplicate transcript:', transcript);
         return;
@@ -112,6 +122,7 @@ export default defineAgent({
         ctx.participant?.identity || ctx.room?.name || 'livekit-user';
 
       const url = makeBackendUrl();
+      console.log('[agent] POSTing to backend:', url);
 
       try {
         const resp = await fetch(url, {
@@ -120,19 +131,45 @@ export default defineAgent({
           body: JSON.stringify({ transcript, customerId }),
         });
 
+        if (!resp.ok) {
+          const text = await resp.text();
+          console.error('[agent] backend returned non-200:', resp.status, text);
+          return;
+        }
+
         const data = await resp.json();
         console.log('[agent] backend reply:', data);
 
         const reply = data?.answer || data?.message;
         if (reply) {
           const clean = sanitizeForTTS(shorten(reply));
-          console.log('[agent] spoke reply:', clean);
+          console.log('[agent] will speak:', clean);
 
+          // speak if we have a working TTS
+          if (tts) {
+            try {
+              await session.say(clean);
+            } catch (err) {
+              console.error('[agent] TTS failed via inference:', err);
+            }
+          } else {
+            console.log('[agent] TTS not available, only publishing data');
+          }
+
+          // publish to room so UI can show it
           try {
-            // this is the actual speech
-            await session.say(clean);
+            const payload = Buffer.from(
+              JSON.stringify({
+                type: 'agent_reply',
+                text: clean,
+              }),
+              'utf-8',
+            );
+            await ctx.room.localParticipant.publishData(payload, {
+              reliable: true,
+            });
           } catch (err) {
-            console.error('[agent] TTS failed:', err);
+            console.error('[agent] failed to publish data to room:', err);
           }
         }
       } catch (err) {
@@ -140,7 +177,7 @@ export default defineAgent({
       }
     });
 
-    // start and join room
+    // start listening + join room
     await session.start({
       agent: new Assistant(),
       room: ctx.room,
@@ -149,6 +186,7 @@ export default defineAgent({
       },
     });
 
+    // VERY IMPORTANT: if we reach here, the job is healthy
     await ctx.connect();
     console.log('[agent] joined job room and is ready');
   },

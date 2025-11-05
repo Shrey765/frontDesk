@@ -1,6 +1,6 @@
 import { db } from "../config/firebase.js";
 import admin from "firebase-admin";
-import { RoomServiceClient } from "livekit-server-sdk";
+import { RoomServiceClient, DataPacket_Kind } from "livekit-server-sdk";
 
 const livekit = new RoomServiceClient(
   process.env.LIVEKIT_SERVER_URL,     // <- https://....livekit.cloud
@@ -94,79 +94,107 @@ const getAllCustomerRequests = async (req, res) => {
 }
 
 //resolve customer request
+// src/controllers/cutomer.controller.js
 const resolveCustomerRequest = async (req, res) => {
-    try {
+  try {
+    const { id } = req.params;
+    const { answer } = req.body;
 
-        const {id} = req.params;
-        const {answer} = req.body;
-        const FieldValue = admin.firestore.FieldValue;
-        if(!answer || typeof answer !== "string" || answer.trim() === ""){
-            return res
-            .status(400)
-            .json({
-                message: "Answer is required to resolve the request"
-            })
-        }
-
-        const requestRef = db.collection("helpRequests").doc(id);
-        const requestDoc = await requestRef.get();
-        if (!requestDoc.exists) {
-            return res.status(404).json({ message: "Request not found." });
-        }
-
-        const { customerId, hashedQuestion, question } = requestDoc.data();
-
-        await requestRef.update({
-            status: "resolved",
-            answer: answer,
-            updatedAt: FieldValue.serverTimestamp()
-        })
-
-
-        const kbRef = db.collection("knowledgeBase").doc(hashedQuestion);
-        const kbEntry = {
-            hashedQuestion: hashedQuestion,
-            question: question,
-            answer: answer,
-            createdAt: FieldValue.serverTimestamp()
-        }
-        await kbRef.set(kbEntry);
-
-        console.log(`SIMULATED TEXT to ${customerId}: Here's that answer: '${answer}'`);
-        console.log(`KB upserted for question: "${question}" (id: ${hashedQuestion})`);
-
-        const payload = {
-            type: "kb_resolved",
-            question,
-            answer,
-        };      
-
-        await livekit.sendData(
-            room,
-            Buffer.from(JSON.stringify(payload)),
-            {
-                // you can target a participant if you want
-                destinationIdentities: [participantIdentity],
-            }
-        );
-
-        return res
-            .status(200)
-            .json({
-                message: "Customer request resolved successfully",
-                entry: kbEntry,
-                kbId: hashedQuestion,
-            })
-    } catch (error) {
-        console.log(error);
-        return res
-        .status(500)
-        .json({
-            message: "Error while resolving customer requests",
-            error: error
-        })
+    if (!answer || !answer.trim()) {
+      return res.status(400).json({ message: "answer is required" });
     }
-}
+
+    // 1. fetch the help request
+    const reqRef = db.collection("helpRequests").doc(id);
+    const snap = await reqRef.get();
+    if (!snap.exists) {
+      return res.status(404).json({ message: "request not found" });
+    }
+
+    const reqData = snap.data();
+    const question = reqData.question || "";
+    // this is what your agent sent originally:
+    const roomOrIdentity =
+      reqData.customerId || reqData.customer || "livekit-user";
+    // you stored the hash as hashedQuestion
+    const kbId = reqData.kbId || reqData.hashedQuestion;
+
+    // 2. mark request resolved
+    await reqRef.update({
+      status: "resolved",
+      resolvedAnswer: answer,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 3. upsert KB
+    if (kbId) {
+      const kbRef = db.collection("knowledgeBase").doc(kbId);
+      await kbRef.set(
+        {
+          question,
+          answer,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      console.log(
+        `KB upserted for "${question}" (id: ${kbId})`
+      );
+    }
+
+    // 4. 🔔 notify the LiveKit room so the agent can speak it
+    // LIVEKIT_URL is wss://..., turn it into https://...
+    const livekitHttp =
+      process.env.LIVEKIT_HTTP_URL ||
+      (process.env.LIVEKIT_URL || "").replace("wss://", "https://");
+
+    if (livekitHttp && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) {
+      const roomService = new RoomServiceClient(
+        livekitHttp,
+        process.env.LIVEKIT_API_KEY,
+        process.env.LIVEKIT_API_SECRET
+      );
+
+      // we’ll send to the room whose name == customerId (that’s what your agent sent)
+      const payload = {
+        type: "kb_resolved",
+        text: answer,
+        question,
+      };
+
+      try {
+        await roomService.sendData(
+          // room name
+          roomOrIdentity,
+          Buffer.from(JSON.stringify(payload)),
+          {
+            // reliable so it reaches the agent
+            kind: DataPacket_Kind.RELIABLE,
+            // we can broadcast to everyone in the room
+            // or target an identity: destinationIdentities: [roomOrIdentity]
+          }
+        );
+        console.log(
+          `LiveKit notify sent to room "${roomOrIdentity}" about resolved request`
+        );
+      } catch (e) {
+        console.error("Failed to send LiveKit data:", e);
+      }
+    } else {
+      console.warn(
+        "LiveKit notify skipped: LIVEKIT_URL/API_KEY/API_SECRET missing"
+      );
+    }
+
+    return res.json({ message: "request resolved", id });
+  } catch (err) {
+    console.error("Error while resolving customer requests:", err);
+    return res.status(500).json({
+      message: "Error while resolving customer requests",
+      error: err.message,
+    });
+  }
+};
 
 //route for LiveKit AI to fetch Q&A pairs from knowledge base
 const getKnowledgeBase = async (req, res) => {
